@@ -8,7 +8,9 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class BlogRAGService:
@@ -85,23 +87,44 @@ class BlogRAGService:
         if not retriever:
             return "시스템 준비가 되지 않았습니다 (DB 없음). 관리자에게 인덱싱을 요청하세요."
 
+        # 관련 문서 검색
+        docs = retriever.invoke(question)
+
+        # 프롬프트 로드 및 체인 구성
         prompts = self._load_prompt()
         prompt = ChatPromptTemplate.from_messages([
             ("system", prompts['default_rag']['system']),
             ("human", prompts['default_rag']['user'])
         ])
 
-        def format_docs(docs):
-            return "\n\n".join(doc.page_content for doc in docs)
+        # 답변 생성 체인 (Generation)
+        def format_docs(documents):
+            return "\n\n".join(doc.page_content for doc in documents)
 
         chain = (
-            {"context": retriever | format_docs, "question": RunnablePassthrough()}
-            | prompt
+            prompt
             | self.llm
             | StrOutputParser()
         )
 
-        return chain.invoke(question)
+        # LLM 답변 생성
+        context_text = format_docs(docs)
+        answer = chain.invoke({"context": context_text, "question": question})
+
+        # 출처 정보 포맷팅 (Source Citation)
+        # - 중복 제거 및 파일명만 추출
+        unique_sources = set()
+        for doc in docs:
+            # 전체 경로에서 파일명만 추출
+            source_path = doc.metadata.get("source", "알 수 없음")
+            filename = os.path.basename(source_path)
+            unique_sources.add(filename)
+
+        # 답변 하단에 출처 추가
+        source_str = "\n".join([f"- [*] {src}" for src in unique_sources])
+        final_response = f"{answer}\n\n---\n**[*] 참조된 문서:**\n{source_str}"
+
+        return final_response
 
 
 rag_service = BlogRAGService()
