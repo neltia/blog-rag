@@ -1,0 +1,12 @@
+# env
+.venv/
+.env
+
+# pycache
+__pycache__/
+
+# vector DB
+data/
+
+# SSL certificates
+*.pem
